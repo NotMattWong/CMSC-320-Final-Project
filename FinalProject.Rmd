@@ -1,0 +1,211 @@
+---
+title: "FinalProject"
+author: "Ethan Schaffer, Jay Lyashko, Matthew Wong"
+date: "5/17/2020"
+output: html_document
+---
+
+Chess was invented at some point in the sixth century AD, and was used as part of the education process for persian nobility as a method of encouraging strategic thinking. It has continued to teach these skills into modern day, and the task of finding a way for computers to beat the best humans at chess. Top chess players have learned to leverage computers to study tactics and openings more effectively, and Artificial Intelligence programs like AlphaZero have even introduced new strategies to that game. A second development in chess, has been the rise in popularity of online chess. Today we will use a dataset of over amateur 20,000 games on lichess.com and see what trends we can find.
+
+Additional Knowledge: A game of chess is played between two players, one of whom controls the white pieces, and the other who controls the black pieces. A game can end in one of three ways: either a win for White, a win for Black, or a draw. There are multiple ways to win a game of chess, including Checkmate, Resignation, or running out of time. A draw can either be agreed upon by both players, when one player runs out of time but lacks the pieces left to win, or through stalemate. For the purposes of this project, we will consider any win or tie to be equal, which is convenient as the data doesn't tell us the difference. For more information about the rules of chess, take a look at https://lichess.org/study/QRpvGMhL/iV6aAouq. On sites this lichess.org, a player's rating is tracked using an ELO system, within which a player's will go up or down based on their performance, and the skill of their opponents. For  more information about ELO, check out https://en.wikipedia.org/wiki/Elo_rating_system. 
+
+For this project we will be using the tidyverse library in order to clean and plot our data. 
+```{r libraries}
+library(tidyverse)
+library(tidyr)
+library(broom)
+```
+
+Next, we will import the dataset from games.csv, which we downloaded from https://www.kaggle.com/datasnaek/chess. After doing so, we can clean the data to make it more useful for our goals. Some of the columns in the dataset aren't going to be useful, so we will only select the ones we want. 
+```{r import}
+csv_file <- "games.csv"
+raw_data <- read_csv(csv_file)
+games <- raw_data #%>% select(rated, turns, winner, increment_code, white_rating, black_rating)
+games
+```
+
+Then, we can clean the data, adding new columns based on information that we think will be useful later. We can add the rating_diff and higher_rating_result columns here. They can tell us the different between the two player's ELO ratings, and whether or not the player with the higher rating won. 
+```{r clean}
+games <- games %>% mutate(rating_diff = white_rating - black_rating) %>% mutate(higher_rating_result = ifelse((rating_diff > 0 & winner=="white"), "Won", ifelse((rating_diff < 0 & winner=="black"), "Won", "Didn't Win")))
+games
+```
+
+To take a closer look at the data, we will make a few graphs of the data using ggplot. In particular, we can look to ensure that players of similar ratings are playing against each other. While there are some clear outliers, we can see that the ratings are relatively well matched. 
+```{r WinsByRating}
+games %>% ggplot(aes(x=white_rating, y=black_rating)) + geom_point() + geom_smooth() + labs(title="Games by Rating",
+          x="White Rating", y="Black Rating") 
+```
+
+However, it is possible that many of these outliers are friends playing one another in an unrated game. So, let's try again, filtering out games that are not rated. Viola! We can now see a much more linear set of matches between players. This makes sense, as players who are matched despite different ratings are likely friends playing a friendly game. 
+```{r WinsByRatingRatedOnly}
+rated_games  <- games %>% filter(rated=="TRUE")
+rated_games %>% ggplot(aes(x=white_rating, y=black_rating)) + geom_point() + geom_smooth() + labs(title="Games by Rating",
+          x="White Rating", y="Black Rating") 
+```
+
+So, this begs an obvious question: How often will a player win a game they are rated higher in? to find out, we can take a look at game results at different average ratings for the players. When players have lower or higher ratings, they are paired more consistently against players with similar rating. Overall, it seems like the higher the rating difference is, the more likely it is the player with the higher rating will win. However, this is not always the case, as we can see from the red dots that are higher or lower in the chart.
+```{r RatingDifferenceByResult}
+avg_ratings <- rated_games %>% mutate(avg_rating = (white_rating + black_rating) / 2)
+avg_ratings %>% ggplot(aes(x=avg_rating, y=rating_diff, color=higher_rating_result)) + geom_point() + labs(title="Results",
+          x="Average Rating", y="Rating Difference (White-Black)")
+```
+
+We can also take a look at only those red dots, using an additional filter. 
+```{r GraphOnlyUpsets}
+avg_ratings %>% filter(higher_rating_result=="Didn't Win") %>% ggplot(aes(x=avg_rating, y=rating_diff, color=higher_rating_result)) + geom_point() + 
+  labs(title="Results", x="Average Rating", y="Rating Difference (White-Black)") + ylim(-1500,1500)
+```
+
+We can do the same for only the expected results as well.
+```{r GraphOnlyExpected}
+avg_ratings %>% filter(higher_rating_result=="Won") %>% ggplot(aes(x=avg_rating, y=rating_diff, color=higher_rating_result)) + geom_point() +
+  labs(title="Results", x="Average Rating", y="Rating Difference (White-Black)") + ylim(-1500,1500)
+```
+
+One of the most important parts of winning a game in chess is the opening. For a more in-depth answer to why chess openings are important, you can read the following article: https://www.ichess.net/blog/6-reasons-study-chess-openings/. Now having known this, you might wonder what openings are commonly played in order to win games. We can figure this out by seeing what kinds of openings are used in rated games to determine if some openings are more common than others within certain portions of our dataset. We will split the games into quartiles by the average ratings of the players, and then look at the most frequent openings. But first we should prepare our dataset for what we are about to look at.
+
+```{r OpeningsData}
+opening_df <- avg_ratings %>%
+  filter(rated=="TRUE" & winner=="white") %>%
+  select(avg_rating, opening_name, winner)
+opening_df <- opening_df[order(opening_df$avg_rating),]
+```
+
+This data frame will be sorted by average rating, contain the rated games that were won by the white player, and will contain information about the average rating, the opening the player used, and the winner. Now we can look at the most common overall openings used in the dataset.
+
+```{r Openings}
+openings <- opening_df %>%
+  count(opening_name)
+colnames(openings) <- c("opening_name", "freq")
+openings %>%
+  arrange(desc(freq))
+```
+
+We can now see that from our given dataset, the most common opening in which the white player wins is the Scandinavian Defense: Mieses-Kotroc Variation. Other notable openings that have been used to win games are also the Sicilian Defense, French Defense: Knight Variation, and the Scotch Game.
+
+Now to look at the different percentiles of players, we need to calculate the location of the bottom and middle percentiles of our data before we look at the frequency of the openings.
+
+```{r percentiles}
+totalG <- 8052
+bottom <- ceiling(0.25 * totalG)
+middle <- ceiling(0.5 * totalG)
+top <- ceiling(0.75 * totalG)
+```
+
+```{r WhiteWinsOpening-first}
+openings25th <- opening_df[1:bottom,] %>%
+  count(opening_name)
+colnames(openings25th) <- c("opening_name", "freq")
+openings25th %>%
+  arrange(desc(freq))
+```
+
+From the table above, the most frequent opening for ranked games in the first quartile of players in the dataset is Van't Kruijs Opening followed by the Scandinavian Defense and the Scandinavian Defense: Mieses-Kotroc Variation. This can now be done for the rest of the quartiles to see if there is a trend for common openings.
+
+```{r WhiteWinsOpening-second}
+openings50th <- opening_df[(bottom+1):middle,] %>%
+  count(opening_name)
+colnames(openings50th) <- c("opening_name", "freq")
+openings50th %>%
+  arrange(desc(freq))
+```
+
+For ranked games in the second quartile, the top three most used openings that have won are the Sicilian Defense: Bowdler Attack, Sicilian Defense and the Scandinavian Defense: Mieses-Kotroc Variation.
+
+```{r WhiteWinsOpening-third}
+openings75th <- opening_df[(middle+1):top,] %>%
+  count(opening_name)
+colnames(openings75th) <- c("opening_name", "freq")
+openings75th %>%
+  arrange(desc(freq))
+```
+
+For ranked games in the third quartile, the top three most used openings that have won are the French Defense: Knight Variation, Queen's Gambit Refused: Marshall Defense and Scotch Game.
+
+```{r WhiteWinsOpening-fourth}
+openingstop <- opening_df[(top+1):totalG,] %>%
+  count(opening_name)
+colnames(openingstop) <- c("opening_name", "freq")
+openingstop %>%
+  arrange(desc(freq))
+```
+
+For ranked games in the fourth quartile, the top three most used openings that have won are the Sicilian Defense, the Horwitz Defense, and the Queen's Pawn Game: Mason Attack.
+
+After computing all these tables for each bracket, we can see that in each quartile the most popular opening for the white player to play is either Van't Kruijs Opening, Sicilian Defense: Bowdler Attack, French Defense: Knight Variation, or Sicilian Defense respectively. It was interesting to see these results because although all of these openings have had high total win frequencies, the overall most frequent opening, the Scandinavian Defense: Mieses-Kotroc Variation was never the most frequent opening for any specific quartile.
+
+This is most likely because our data set was not large enough to include an accurate amount of higher elo games. We had previously tried to look at the most frequent openings by using ELO brackets instead of quartiles but found that if we looked at our data this way, the majority of the games played would be centered around the 1250-1750 ELO range and would not give an accurate representation of openings in higher ELO games. This can be clearly seen by the histogram and code below that shows the number of games, represented as the "n" column, in each ELO bracket if we were to split the data into even ELO brackets.
+
+```{r histo}
+avg_ratings %>% ggplot(aes(x=avg_rating)) + geom_histogram(bins = 10)
+```
+
+```{r gamesInBrackets750-1250}
+opening_df %>%
+  filter(avg_rating >= 750 & avg_rating <= 1250) %>%
+  count(winner)
+```
+
+```{r gamesInBrackets1250-1750}
+opening_df %>%
+  filter(avg_rating >= 1250 & avg_rating <= 1750)%>%
+  count(winner)
+```
+
+```{r gamesInBrackets1750-2250}
+opening_df %>%
+  filter(avg_rating >= 1750 & avg_rating <= 2250) %>%
+  count(winner)
+```
+
+```{r gamesInBrackets2250-2750}
+opening_df %>%
+  filter(avg_rating >= 2250 & avg_rating <= 2750)%>%
+  count(winner)
+```
+
+Chess is technically considered a sport.  And as in all sports, everyone loves an underdog who comes out on top.  For this specific reason an analysis of upsets is particularly interesting.  Did there exist a particular opening strategy that helped the under dogs succeed.  To figure this we looked at all the games where the person with the lower ELO ended up winning.  From then on, we found the frequency of winning for that strategy as well as the average rating difference.  We removed frequencies under 25 from this dataset to remove potential rare outliers.
+
+```{r Upsets DF}
+upsets <- avg_ratings %>% 
+  filter(higher_rating_result=="Didn't Win")
+upsets_count <- upsets %>% 
+  count(opening_name)
+colnames(upsets_count) <- c("opening_name", "freq")
+t <- upsets %>% 
+  group_by(opening_name) %>%
+  summarise(average_rating_diff = mean(abs(rating_diff)))
+
+upset_stat <- inner_join(upsets_count, t, by="opening_name")
+upset_stat <- upset_stat %>% arrange(desc(freq)) 
+upset_stat <- upset_stat[!(upset_stat$freq < 25),]
+upset_stat
+```
+
+Frin the table we gather Silician Defense and French Defense as solid choices of under dogs.  It must be noted that that this table does not necessarily mean that using one of these strategies leads to a higher chance of victory for an underdog.  It simply shows how prevalent the strategy is in upset games and the average rating difference between players.
+
+```{r Upsets Graph}
+upset_stat  %>% ggplot(aes(x=freq, y=average_rating_diff)) + geom_point() +
+  labs(title="Results", x="Frequency of Opening Starategy", y="Average Rating Difference in upsets") + ylim(0,150)
+```
+
+From the graph we gather average rating difference in upsets do not vary dramatically with opening strategy in upset games.
+
+
+Finally one of the most interesting questions we could ask about this dataset was, can we effectively predict the outcome of a game base on given data.  And that is what we set out to do.
+
+```{r Linear Regression}
+avg_ratings <- avg_ratings %>% mutate(w = ifelse(winner=="white", 1, 0))
+avg_ratings <- avg_ratings %>% mutate(diff_more_than_50 = ifelse((rating_diff) > 50, 1, 0))
+top_openings <- openings %>% arrange(desc(freq)) 
+top_openings <- top_openings[1:100,]
+
+avg_ratings$myvar = avg_ratings$opening_name %in% top_openings$opening_name
+avg_ratings <- avg_ratings %>% mutate(is_top_opener = ifelse(myvar=="TRUE", 1, 0))
+avg_ratings
+
+auto_fit <- lm(w ~ rating_diff + is_top_opener, data=avg_ratings) %>% tidy()
+auto_fit %>% knitr::kable()
+```
+
+Based on this analysis we can make some conclusions.  We run a regression on two variables to determine if the player who starts out as white wins.  The first variable rating difference shows the how much an increaes of 1 point over the ELA scores affect the probability that the player starting out as white will win.  The second variable is_top_opener shows the probability that one will win if they used a top 100 opener.  All these variables are statistically significant.
